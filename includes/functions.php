@@ -1,6 +1,6 @@
 <?php
 // For debugging - we might want this set to 0 in production
-ini_set('display_errors', 0);
+ini_set('display_errors', 1);
 
 if (!isset($_SESSION)) {
 	session_start();
@@ -87,6 +87,27 @@ function dbTable($groupType = 'global') {
 	return "processed";
 }
 
+//Attempt HTTPS first, then HTTP
+function secureTest($pmsIp, $pmsHttpPort, $plexAuthToken = NULL) {
+	$prefix = ['https://', 'http://']; // SSL preferred
+	$status = '/identity'; // Just to determine if the server is up (use allowed resource)
+	for ($i = 0; $i < count($prefix); $i++) {
+                $pmsUrl = $prefix[$i] . $pmsIp . ':' . $pmsHttpPort;
+                $curlHandle = curl_init($pmsUrl . $status . $plexAuthToken);
+                curl_setopt($curlHandle, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($curlHandle, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($curlHandle, CURLOPT_SSL_VERIFYHOST, false);
+                curl_setopt($curlHandle, CURLOPT_FORBID_REUSE, true);
+                $data = curl_exec($curlHandle);
+                if ($data === false || curl_getinfo($curlHandle, CURLINFO_HTTP_CODE) >= 400) {
+                        curl_close($curlHandle);
+                        continue; // Move on to the next prefix
+                }
+                curl_close($curlHandle);
+		return $pmsUrl; // This URL returned valid data
+	}
+}
+
 // Determine the current PMS URL to use, and cache in the session
 function getPmsURL() {
 	global $plexWatch;
@@ -95,44 +116,54 @@ function getPmsURL() {
 	} else {
 		$_SESSION['pmsUrl'] = false;
 	}
-	$prefix = ['https://', 'http://'];
-	$status = '/status/sessions'; // Just to determine if the server is up
 	if (!empty($plexWatch['myPlexAuthToken'])) {
-		$myPlexAuthToken = '?X-Plex-Token='.$plexWatch['myPlexAuthToken'];
+		$plexAuthToken = '?X-Plex-Token='.$plexWatch['myPlexAuthToken'];
 	} else {
-		$myPlexAuthToken = '';
+		$plexAuthToken = '';
 	}
-	for ($i = 0; $i < count($prefix); $i++) {
-		$pmsUrl = $prefix[$i] . $plexWatch['pmsIp'] . ':' . $plexWatch['pmsHttpPort'];
-		$curlHandle = curl_init($pmsUrl . $status . $myPlexAuthToken);
-		curl_setopt($curlHandle, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($curlHandle, CURLOPT_SSL_VERIFYPEER, false);
-		curl_setopt($curlHandle, CURLOPT_SSL_VERIFYHOST, false);
-		curl_setopt($curlHandle, CURLOPT_FORBID_REUSE, true);
-		$data = curl_exec($curlHandle);
-		if ($data === false || curl_getinfo($curlHandle, CURLINFO_HTTP_CODE) >= 400) {
-			curl_close($curlHandle);
-			continue; // Move on to the next prefix
-		}
-		curl_close($curlHandle);
-		$_SESSION['pmsUrl'] = $pmsUrl;
-	}
+	$pmsIp = $plexWatch['pmsIp'];
+	$pmsHttpPort = $plexWatch['pmsHttpPort'];
+
+	$_SESSION['pmsUrl'] = secureTest($pmsIp, $pmsHttpPort, $plexAuthToken = NULL);
 	return $_SESSION['pmsUrl'];
 }
 
-function getPMSData($path) {
+// Separate function for external URL building
+function getSsUrl($sharedServer) {
+	$plexAuthToken = '?X-Plex-Token=' . $sharedServer['plexAuthToken'];
+	$pmsIp = $sharedServer['sharedServerAddress'];
+	$pmsHttpPort = $sharedServer['sharedServerPort'];
+	if ($pmsIp != 'plex.tv') {
+		return secureTest($pmsIp, $pmsHttpPort, $plexAuthToken);
+	} else {
+		$pmsUrl = 'https://plex.tv';
+		return $pmsUrl;
+	}
+}
+
+function getPMSData($path, $sharedServer = NULL) {
 	global $plexWatch;
 	$tokenPrefix = '?';
 	if (strpos($path, '?')) {
 		$tokenPrefix = '&';
 	}
-	if (!empty($plexWatch['myPlexAuthToken'])) {
-		$myPlexAuthToken = $tokenPrefix .
-			'X-Plex-Token='.$plexWatch['myPlexAuthToken'];
-	} else {
-		$myPlexAuthToken = '';
+	//Set the token to personal token for local server and plexTv calls
+	if (empty($sharedServer)) {
+		if (!empty($plexWatch['myPlexAuthToken'])) {
+			$plexAuthToken = $tokenPrefix .
+				'X-Plex-Token='.$plexWatch['myPlexAuthToken'];
+		} else {
+			$plexAuthToken = '';
+		}
+	} else { 
+		$plexAuthToken = $tokenPrefix . 'X-Plex-Token=' . $sharedServer['plexAuthToken'];
 	}
-	$url = getPmsURL() . $path . $myPlexAuthToken;
+	//Follow standard URL request
+	if (empty($sharedServer)) {
+		$url = getPmsUrl() . $path . $plexAuthToken;
+	} else {
+		$url = getSsUrl($sharedServer) . $path . $plexAuthToken;
+	}
 	$curlHandle = curl_init($url);
 	curl_setopt($curlHandle, CURLOPT_RETURNTRANSFER, true);
 	curl_setopt($curlHandle, CURLOPT_SSL_VERIFYPEER, false);
@@ -146,7 +177,11 @@ function getPMSData($path) {
 		return false;
 	}
 	curl_close($curlHandle);
-	return $data;
+        if (empty($sharedServer)) {
+                return $data;
+        } else {
+                return array ($data, $url);
+        }
 }
 
 /* Function to lowercase all object keys. easier for matching */

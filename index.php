@@ -97,7 +97,17 @@ if (file_exists($guisettingsFile)) {
 				<div class='wellbg'>
 					<div class='wellheader'>
 						<div class='dashboard-wellheader'>
-							<h3>Recently Added</h3>
+							<h3>Shared Servers' Recently Added</h3>
+						</div>
+					</div>
+					<div id='recentlyAddedFromShared'><div id='recently-added-from-shared-spinner' class='spinner'></div></div>
+				</div>
+			</div>
+			<div class='row-fluid'>
+				<div class='wellbg'>
+					<div class='wellheader'>
+						<div class='dashboard-wellheader'>
+							<h3>My Recently Added</h3>
 						</div>
 					</div>
 					<div id='recentlyAdded'><div id='recently-added-spinner' class='spinner'></div></div>
@@ -158,6 +168,27 @@ if (file_exists($guisettingsFile)) {
 			currentActivity();
 			setInterval(currentActivity, 15000);
 		</script>
+                <script>
+                        function recentlyAddedFromShared() {
+                                var widthVal= $('body').find(".container-fluid").width();
+                                $.ajax({
+                                        url: 'includes/shared_servers.php',
+                                        type: "GET",
+                                        async: true,
+                                        data: { width : widthVal
+					},
+                                        success: function(data) {
+                                                $("#recentlyAddedFromShared").html(data);
+                                        }
+                                });
+                        }
+                        $(document).ready(function () {
+                                recentlyAddedFromShared();
+                                $(window).resize(function() {
+                                        recentlyAddedFromShared();
+                                });
+                        });
+                </script>
 		<script>
 			function recentlyAdded() {
 				var widthVal= $('body').find(".container-fluid").width();
@@ -165,7 +196,9 @@ if (file_exists($guisettingsFile)) {
 					url: 'includes/recently_added.php',
 					type: "GET",
 					async: true,
-					data: { width : widthVal },
+					data: { width : widthVal,
+						action : 'exec'
+					 },
 					success: function(data) {
 						$("#recentlyAdded").html(data);
 					}
@@ -202,6 +235,9 @@ if (file_exists($guisettingsFile)) {
 
 			var target_b = document.getElementById('recently-added-spinner');
 			var spinner_b = new Spinner(opts).spin(target_b);
+
+			var target_c = document.getElementById('recently-added-from-shared-spinner');
+			var spinner_c = new Spinner(opts).spin(target_c);
 		</script>
 		<script>
 			$(document).ready(function() {
